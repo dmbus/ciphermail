@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>CipherMail Settings</title>
+    <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+    <h3>CipherMail</h3>
+
+    <div class="tabs">
+        <button class="tab active" data-tab="keys">Keys</button>
+        <button class="tab" data-tab="compose">Compose</button>
+        <button class="tab" data-tab="settings">Settings</button>
+    </div>
+
+    <div id="tab-keys" class="tab-content active">
+        <div class="section">
+            <label>My Keys</label>
+            <div id="myKeyInfo" class="key-info">
+                <p style="color:#5f6368;font-size:12px;">No keys generated yet</p>
+            </div>
+            <button id="generateKeys" class="button-primary">
+                <span class="spinner"></span>
+                <span class="btn-text">Generate New Keys</span>
+            </button>
+            <button id="rotateKeys" class="button-secondary" style="display:none;margin-top:8px;">
+                <span class="spinner"></span>
+                <span class="btn-text">Rotate Keys</span>
+            </button>
+            <button id="exportKeys" class="button-secondary" style="display:none;margin-top:8px;">
+                <span class="spinner"></span>
+                <span class="btn-text">Export Keys</span>
+            </button>
+            <button id="deleteMyKeys" class="button-danger" style="display:none;margin-top:8px;">
+                Delete My Keys
+            </button>
+        </div>
+
+        <div class="section">
+            <label>Recipient's Public Key</label>
+            <div id="recipientKeyInfo" class="key-info">
+                <p style="color:#5f6368;font-size:12px;">No recipient key saved</p>
+            </div>
+            <textarea id="pubKey" placeholder="Paste PGP Public Key here..."></textarea>
+            <button id="savePubKey">
+                <span class="spinner"></span>
+                <span class="btn-text">Save Recipient Key</span>
+            </button>
+        </div>
+
+        <div class="section">
+            <label>Key Server Lookup</label>
+            <div style="display:flex;gap:8px;">
+                <input type="email" id="lookupEmail" placeholder="Enter recipient's email" style="flex:1;">
+                <button id="lookupKey" class="button-small">
+                    <span class="spinner"></span>
+                    <span class="btn-text">Search</span>
+                </button>
+            </div>
+            <div id="lookupResult" class="lookup-result" style="display:none;margin-top:12px;padding:12px;background:#f8f9fa;border-radius:8px;font-size:12px;"></div>
+            <button id="importFoundKey" class="button-small-success" style="display:none;margin-top:8px;">
+                <span class="spinner"></span>
+                <span class="btn-text">Import Key</span>
+            </button>
+        </div>
+
+        <div class="section">
+            <label>Key Backup & Restore</label>
+            <div style="display:flex;gap:8px;">
+                <button id="importKeys" class="button-secondary" style="flex:1;">
+                    <span class="spinner"></span>
+                    <span class="btn-text">Import Backup</span>
+                </button>
+            </div>
+            <input type="file" id="backupFile" accept=".json" style="display:none;">
+            <p style="font-size:11px;color:#5f6368;margin-top:8px;">Exported keys are encrypted with your passphrase.</p>
+        </div>
+    </div>
+
+    <div id="tab-compose" class="tab-content">
+        <div class="section">
+            <label>Compose Options</label>
+            <div class="checkbox-option">
+                <input type="checkbox" id="autoSign" checked>
+                <label for="autoSign">Sign messages by default (Encrypt & Sign)</label>
+            </div>
+            <div class="checkbox-option">
+                <input type="checkbox" id="autoLookup">
+                <label for="autoLookup">Auto-lookup recipient keys when composing</label>
+            </div>
+            <div class="checkbox-option">
+                <input type="checkbox" id="confirmEncrypt" checked>
+                <label for="confirmEncrypt">Confirm before encrypting</label>
+            </div>
+        </div>
+
+        <div class="section">
+            <label>Sign a Message</label>
+            <textarea id="signMessage" placeholder="Enter message to sign..." style="height:60px;resize:none;"></textarea>
+            <div class="input-wrapper">
+                <input type="password" id="signPassphrase" placeholder="Your passphrase">
+                <button type="button" class="toggle-password" aria-label="Toggle password visibility">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                        <circle cx="12" cy="12" r="3"/>
+                    </svg>
+                </button>
+            </div>
+            <button id="signMessageBtn" class="button-warning">
+                <span class="spinner"></span>
+                <span class="btn-text">Sign Message</span>
+            </button>
+            <textarea id="signedOutput" readonly placeholder="Signed message will appear here..." style="height:80px;resize:none;margin-top:8px;font-family:monospace;font-size:10px;"></textarea>
+            <button id="copySignedMsg" class="button-small" style="display:none;margin-top:4px;">
+                <span class="spinner"></span>
+                <span class="btn-text">Copy Signed Message</span>
+            </button>
+        </div>
+    </div>
+
+    <div id="tab-settings" class="tab-content">
+        <div class="section">
+            <label>Security</label>
+            <div class="checkbox-option">
+                <input type="checkbox" id="sessionTimeout" checked>
+                <label for="sessionTimeout">Enable session timeout</label>
+            </div>
+            <div id="timeoutSetting" class="sub-setting">
+                <label style="font-size:12px;font-weight:normal;">Lock after inactivity (minutes):</label>
+                <select id="timeoutMinutes" style="width:100%;padding:8px;margin-top:4px;border:1px solid #ccc;border-radius:4px;">
+                    <option value="5">5 minutes</option>
+                    <option value="15" selected>15 minutes</option>
+                    <option value="30">30 minutes</option>
+                    <option value="60">1 hour</option>
+                </select>
+            </div>
+            <div class="checkbox-option">
+                <input type="checkbox" id="secureClipboard" checked>
+                <label for="secureClipboard">Auto-clear clipboard after copying</label>
+            </div>
+            <div class="sub-setting" id="clipboardTimeoutSetting">
+                <label style="font-size:12px;font-weight:normal;">Clear after (seconds):</label>
+                <select id="clipboardSeconds" style="width:100%;padding:8px;margin-top:4px;border:1px solid #ccc;border-radius:4px;">
+                    <option value="30">30 seconds</option>
+                    <option value="60" selected>1 minute</option>
+                    <option value="120">2 minutes</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="section">
+            <label>Appearance</label>
+            <div class="checkbox-option">
+                <input type="checkbox" id="darkMode">
+                <label for="darkMode">Dark mode</label>
+            </div>
+        </div>
+
+        <div class="section">
+            <label>Keyboard Shortcuts</label>
+            <div style="font-size:12px;color:#5f6368;margin-bottom:8px;">
+                <p><strong>Ctrl+Shift+E</strong> - Encrypt message</p>
+                <p><strong>Ctrl+Shift+D</strong> - Decrypt message</p>
+                <p><strong>Ctrl+Shift+S</strong> - Sign message</p>
+            </div>
+        </div>
+
+        <div class="section">
+            <label>Import/Export Settings</label>
+            <div style="display:flex;gap:8px;">
+                <button id="exportSettings" class="button-secondary" style="flex:1;">
+                    <span class="spinner"></span>
+                    <span class="btn-text">Export Settings</span>
+                </button>
+                <button id="importSettings" class="button-secondary" style="flex:1;">
+                    <span class="spinner"></span>
+                    <span class="btn-text">Import Settings</span>
+                </button>
+            </div>
+            <input type="file" id="settingsFile" accept=".json" style="display:none;">
+        </div>
+    </div>
+
+    <div class="section" style="border-bottom:none;">
+        <label>My Public Key (to share)</label>
+        <textarea id="myPubKey" readonly placeholder="Your public key will appear here after generation."></textarea>
+        <button id="copyPubKey" class="button-secondary">
+            <span class="spinner"></span>
+            <span class="btn-text">Copy Public Key</span>
+        </button>
+        <button id="showQRCode" class="button-secondary" style="margin-top:8px;display:none;">
+            <span class="btn-text">Show QR Code</span>
+        </button>
+    </div>
+
+    <div id="qrModal" class="modal" style="display:none;">
+        <div class="modal-content">
+            <span class="modal-close">&times;</span>
+            <h3 style="margin-top:0;">Your Public Key QR Code</h3>
+            <canvas id="qrCanvas" style="margin:16px auto;display:block;"></canvas>
+            <p style="font-size:11px;color:#5f6368;text-align:center;">Scan to import this key</p>
+        </div>
+    </div>
+
+    <div id="passphraseModal" class="modal" style="display:none;">
+        <div class="modal-content">
+            <span class="modal-close">&times;</span>
+            <h3 style="margin-top:0;">Enter Passphrase</h3>
+            <p id="passphraseModalDesc" style="font-size:13px;color:#5f6368;">Enter your passphrase:</p>
+            <div class="input-wrapper">
+                <input type="password" id="modalPassphrase" placeholder="Passphrase" style="width:100%;padding:12px;margin:12px 0;border:1px solid #ccc;border-radius:4px;">
+                <button type="button" class="toggle-password" aria-label="Toggle password visibility">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                        <circle cx="12" cy="12" r="3"/>
+                    </svg>
+                </button>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:12px;">
+                <button id="modalCancel" class="button-secondary" style="flex:1;">Cancel</button>
+                <button id="modalConfirm" class="button-primary" style="flex:1;">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="toastContainer" class="toast-container"></div>
+
+    <script src="popup.js"></script>
+</body>
+</html>

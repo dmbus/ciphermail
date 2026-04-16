@@ -1,0 +1,56 @@
+{
+  "manifest_version": 3,
+  "name": "CipherMail",
+  "version": "1.0.0",
+  "description": "PGP Encryption for Gmail - Encrypt and decrypt emails with OpenPGP",
+  "permissions": ["storage", "activeTab", "offscreen", "commands"],
+  "host_permissions": ["https://mail.google.com/*", "https://keys.openpgp.org/*", "https://keyserver.ubuntu.com/*", "https://pgpkeys.eu/*"],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none';"
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background/background.js"
+  },
+  "commands": {
+    "encrypt": {
+      "suggested_key": { "default": "Ctrl+Shift+E", "mac": "Command+Shift+E" },
+      "description": "Encrypt the current message"
+    },
+    "decrypt": {
+      "suggested_key": { "default": "Ctrl+Shift+D", "mac": "Command+Shift+D" },
+      "description": "Decrypt the selected message"
+    },
+    "sign": {
+      "suggested_key": { "default": "Ctrl+Shift+S", "mac": "Command+Shift+S" },
+      "description": "Sign the current message"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://mail.google.com/*"],
+      "js": ["libs/openpgp.min.js", "content/content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "ciphermail@yourdomain.com",
+      "strict_min_version": "109.0"
+    }
+  }
+}

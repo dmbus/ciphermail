@@ -1,0 +1,33 @@
+{
+  "name": "ciphermail",
+  "version": "1.0.0",
+  "description": "PGP Encryption for Gmail - Chrome Extension",
+  "main": "index.js",
+  "scripts": {
+    "build": "node scripts/build.js",
+    "build:icons": "node scripts/generate-icons.js",
+    "test": "jest --config jest.config.js",
+    "lint": "eslint background/ content/ popup/",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "pgp",
+    "gmail",
+    "encryption",
+    "chrome-extension",
+    "openpgp",
+    "security"
+  ],
+  "author": "",
+  "license": "MIT",
+  "type": "commonjs",
+  "devDependencies": {
+    "@types/chrome": "^0.1.40",
+    "@types/jest": "^30.0.0",
+    "jest": "^27.5.1",
+    "jest-chrome": "^0.8.0",
+    "jsdom": "^29.0.2",
+    "openpgp": "^6.3.0",
+    "sharp": "^0.32.6"
+  }
+}
