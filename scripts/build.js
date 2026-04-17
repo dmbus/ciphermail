@@ -1,7 +1,9 @@
 const fs = require('fs');
 const path = require('path');
+const { execSync } = require('child_process');
 
 const BUILD_DIR = path.join(__dirname, '..', 'dist');
+const SRC_DIR = path.join(__dirname, '..', 'src');
 
 function copyFile(from, to) {
     const destDir = path.dirname(to);
@@ -28,9 +30,25 @@ function copyDir(from, to) {
     }
 }
 
+function buildTypeScript() {
+    console.log('Compiling TypeScript...');
+    try {
+        execSync('npx tsc --project tsconfig.build.json', { cwd: path.join(__dirname, '..'), stdio: 'inherit' });
+        console.log('TypeScript compilation complete');
+    } catch (err) {
+        console.error('TypeScript compilation failed');
+        process.exit(1);
+    }
+}
+
 function buildBackground() {
     const backgroundPath = path.join(BUILD_DIR, 'background', 'background.js');
     const openpgpPath = path.join(BUILD_DIR, 'libs', 'openpgp.min.js');
+
+    if (!fs.existsSync(backgroundPath) || !fs.existsSync(openpgpPath)) {
+        console.error('Required files not found for bundling');
+        return;
+    }
 
     let background = fs.readFileSync(backgroundPath, 'utf8');
     const openpgp = fs.readFileSync(openpgpPath, 'utf8');

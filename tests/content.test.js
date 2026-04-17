@@ -11,15 +11,17 @@ const contentScriptPath = path.resolve(__dirname, '../content/content.js');
 const contentScriptCode = fs.readFileSync(contentScriptPath, 'utf8');
 
 describe('CipherMail Content Script DOM Injection', () => {
-    let injectEncryptButton, injectDecryptButton, escapeHtml;
+    let injectEncryptButton, injectDecryptButton, escapeHtml, createSignatureDiv, createDecryptedMessageDiv;
 
     beforeAll(() => {
         const testableCode = contentScriptCode.split('// Observe Gmail')[0];
-        const script = new Function(testableCode + '; return { injectEncryptButton, injectDecryptButton, escapeHtml };');
+        const script = new Function(testableCode + '; return { injectEncryptButton, injectDecryptButton, escapeHtml, createSignatureDiv, createDecryptedMessageDiv };');
         const exports = script();
         injectEncryptButton = exports.injectEncryptButton;
         injectDecryptButton = exports.injectDecryptButton;
         escapeHtml = exports.escapeHtml;
+        createSignatureDiv = exports.createSignatureDiv;
+        createDecryptedMessageDiv = exports.createDecryptedMessageDiv;
     });
 
     beforeEach(() => {
@@ -119,6 +121,59 @@ describe('CipherMail XSS Prevention', () => {
     });
 });
 
+describe('CipherMail DOM Creation Functions', () => {
+    let createSignatureDiv, createDecryptedMessageDiv;
+
+    beforeAll(() => {
+        const contentScriptPath = path.resolve(__dirname, '../content/content.js');
+        const contentScriptCode = fs.readFileSync(contentScriptPath, 'utf8');
+        const testableCode = contentScriptCode.split('// Observe Gmail')[0];
+        const script = new Function(testableCode + '; return { createSignatureDiv, createDecryptedMessageDiv };');
+        const exports = script();
+        createSignatureDiv = exports.createSignatureDiv;
+        createDecryptedMessageDiv = exports.createDecryptedMessageDiv;
+    });
+
+    test('should create verified signature div with textContent', () => {
+        const div = createSignatureDiv('Test User', 'ABC123DEF456', true, true);
+
+        expect(div.textContent).toContain('Verified Signature');
+        expect(div.textContent).toContain('Test User');
+        expect(div.textContent).toContain('ABC123DEF456');
+        expect(div.innerHTML).not.toContain('<script>');
+        expect(div.innerHTML).not.toContain('onclick');
+    });
+
+    test('should create unverified signature div', () => {
+        const div = createSignatureDiv('Test User', 'ABC123DEF456', false, true);
+
+        expect(div.textContent).toContain('Unverified Signature');
+        expect(div.textContent).toContain('Test User');
+    });
+
+    test('should create no signature div', () => {
+        const div = createSignatureDiv('Unknown', 'N/A', false, false);
+
+        expect(div.textContent).toContain('No Signature');
+        expect(div.textContent).toContain('not signed');
+    });
+
+    test('should create decrypted message div with textContent', () => {
+        const div = createDecryptedMessageDiv('<script>alert("xss")</script>');
+
+        expect(div.textContent).toBe('<script>alert("xss")</script>');
+        expect(div.innerHTML).not.toContain('<script>');
+    });
+
+    test('should escape XSS attempts in decrypted content', () => {
+        const xssAttempt = '<img src=x onerror="alert(1)">';
+        const div = createDecryptedMessageDiv(xssAttempt);
+
+        expect(div.textContent).toBe(xssAttempt);
+        expect(div.querySelector('img')).toBeNull();
+    });
+});
+
 describe('CipherMail Passphrase Validation', () => {
     function validatePassphraseUI(passphrase) {
         if (!passphrase || passphrase.length < 12) {
@@ -170,5 +225,15 @@ describe('CipherMail Passphrase Validation', () => {
         expect(calcStrength('Abc123!@')).toEqual({ text: 'Fair', color: '#f9a825' });
         expect(calcStrength('MyStr0ng#Pass!')).toEqual({ text: 'Good', color: '#188038' });
         expect(calcStrength('Very$tr0ng&Complex!Key#2024')).toEqual({ text: 'Strong', color: '#0d652d' });
+    });
+});
+
+describe('CipherMail Window Exposure Prevention', () => {
+    test('should not expose internal functions on window object', () => {
+        const contentScriptPath = path.resolve(__dirname, '../content/content.js');
+        const contentScriptCode = fs.readFileSync(contentScriptPath, 'utf8');
+
+        expect(contentScriptCode).not.toContain('window.__ciphermail_cleanup');
+        expect(contentScriptCode).not.toContain('window.__ciphermail_handleEncrypt');
     });
 });

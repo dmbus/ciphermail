@@ -314,6 +314,58 @@ function injectEncryptButton(toolbar) {
     }
 }
 
+function createSignatureDiv(signer, fingerprint, verified, signed) {
+    const div = document.createElement('div');
+    div.style.cssText = 'background:#f1f3f4;padding:8px 12px;margin-bottom:12px;border-radius:4px;font-size:12px;color:#5f6368;';
+
+    if (signed) {
+        if (verified) {
+            div.style.background = '#e6f4ea';
+            div.style.color = '#0f9d58';
+            div.innerHTML = '';
+            const strong = document.createElement('strong');
+            strong.textContent = 'Verified Signature';
+            div.appendChild(strong);
+            div.appendChild(document.createElement('br'));
+            const signedBy = document.createElement('span');
+            signedBy.textContent = `Signed by: ${signer}`;
+            div.appendChild(signedBy);
+            div.appendChild(document.createElement('br'));
+            const fp = document.createElement('span');
+            fp.style.fontFamily = 'monospace';
+            fp.style.fontSize = '10px';
+            fp.textContent = `Fingerprint: ${fingerprint}`;
+            div.appendChild(fp);
+        } else {
+            div.style.background = '#fef7e0';
+            div.style.color = '#f9a825';
+            div.innerHTML = '';
+            const strong = document.createElement('strong');
+            strong.textContent = 'Unverified Signature';
+            div.appendChild(strong);
+            div.appendChild(document.createElement('br'));
+            const signedBy = document.createElement('span');
+            signedBy.textContent = `Signed by: ${signer}`;
+            div.appendChild(signedBy);
+        }
+    } else {
+        div.innerHTML = '';
+        const strong = document.createElement('strong');
+        strong.textContent = 'No Signature';
+        div.appendChild(strong);
+        div.appendChild(document.createTextNode(' - Message is not signed'));
+    }
+
+    return div;
+}
+
+function createDecryptedMessageDiv(text) {
+    const div = document.createElement('div');
+    div.style.cssText = 'background:#f8f9fa;padding:16px;border-left:4px solid #0f9d58;font-family:monospace;font-size:14px;line-height:1.6;white-space:pre-wrap;border-radius:4px;margin:8px 0;box-shadow:0 1px 3px rgba(0,0,0,0.1);';
+    div.textContent = text;
+    return div;
+}
+
 function injectDecryptButton() {
     const pgpRegex = /-----BEGIN PGP MESSAGE-----[\s\S]*?-----END PGP MESSAGE-----/g;
 
@@ -363,7 +415,6 @@ function injectDecryptButton() {
 
             let allDecrypted = true;
             let decryptedCount = 0;
-            const originalBodyHTML = body.innerHTML;
 
             for (const pgpBlock of matches) {
                 try {
@@ -374,50 +425,43 @@ function injectDecryptButton() {
                     });
 
                     if (response && response.success) {
-                        const escapedData = escapeHtml(response.data);
-                        const placeholder = `__CIPHERMAIL_DECRYPTED_${decryptedCount}__`;
-                        body.innerHTML = body.innerHTML.replace(pgpBlock, placeholder);
+                        const placeholder = document.createComment(`CIPHERMAIL_DECRYPTED_${decryptedCount}`);
+                        const pgpElement = findPgpBlockElement(body, pgpBlock);
+                        if (pgpElement) {
+                            pgpElement.replaceWith(placeholder);
+                        }
 
                         const verifyResponse = await chrome.runtime.sendMessage({
                             type: 'VERIFY_SIGNATURE',
                             message: pgpBlock
                         });
 
-                        let signatureInfo = '';
+                        const container = document.createElement('div');
+
                         if (verifyResponse && verifyResponse.success) {
-                            const signer = escapeHtml(verifyResponse.signer || 'Unknown');
-                            const fingerprint = escapeHtml(verifyResponse.fingerprint || 'N/A');
-                            if (verifyResponse.signed) {
-                                if (verifyResponse.verified) {
-                                    signatureInfo = `<div style="background:#e6f4ea;padding:8px 12px;margin-bottom:12px;border-radius:4px;font-size:12px;color:#0f9d58;">
-                                        <strong>Verified Signature</strong><br>
-                                        Signed by: ${signer}<br>
-                                        <span style="font-family:monospace;font-size:10px;">Fingerprint: ${fingerprint}</span>
-                                    </div>`;
-                                } else {
-                                    signatureInfo = `<div style="background:#fef7e0;padding:8px 12px;margin-bottom:12px;border-radius:4px;font-size:12px;color:#f9a825;">
-                                        <strong>Unverified Signature</strong><br>
-                                        Signed by: ${signer}
-                                    </div>`;
-                                }
-                            } else {
-                                signatureInfo = `<div style="background:#f1f3f4;padding:8px 12px;margin-bottom:12px;border-radius:4px;font-size:12px;color:#5f6368;">
-                                    <strong>No Signature</strong> - Message is not signed
-                                </div>`;
-                            }
+                            const signatureDiv = createSignatureDiv(
+                                verifyResponse.signer || 'Unknown',
+                                verifyResponse.fingerprint || 'N/A',
+                                verifyResponse.verified,
+                                verifyResponse.signed
+                            );
+                            container.appendChild(signatureDiv);
                         }
 
-                        body.innerHTML = body.innerHTML.replace(
-                            placeholder,
-                            signatureInfo + `<div style="background:#f8f9fa;padding:16px;border-left:4px solid #0f9d58;font-family:monospace;font-size:14px;line-height:1.6;white-space:pre-wrap;border-radius:4px;margin:8px 0;box-shadow:0 1px 3px rgba(0,0,0,0.1);">${escapedData}</div>`
-                        );
+                        const decryptedDiv = createDecryptedMessageDiv(response.data);
+                        container.appendChild(decryptedDiv);
+
+                        const insertPoint = body.querySelector(`comment:CIPHERMAIL_DECRYPTED_${decryptedCount}`);
+                        if (insertPoint) {
+                            insertPoint.replaceWith(container);
+                        }
+
                         decryptedCount++;
                     } else {
                         allDecrypted = false;
                     }
                 } catch (err) {
                     allDecrypted = false;
-                    body.innerHTML = originalBodyHTML;
                     break;
                 }
             }
@@ -426,8 +470,8 @@ function injectDecryptButton() {
                 btn.remove();
                 showToast(`Decrypted ${decryptedCount} message${decryptedCount > 1 ? 's' : ''} successfully!`, 'success');
             } else {
-                body.innerHTML = originalBodyHTML;
-                showToast(response?.error || 'Decryption failed. Please check your passphrase.', 'error');
+                showToast('Decryption failed. Please check your passphrase.', 'error');
+                injectDecryptButton();
             }
 
             setButtonLoading(btn, false);
@@ -435,6 +479,30 @@ function injectDecryptButton() {
 
         body.prepend(btn);
     });
+}
+
+function findPgpBlockElement(container, pgpBlock) {
+    const walker = document.createTreeWalker(
+        container,
+        NodeFilter.SHOW_TEXT,
+        null,
+        false
+    );
+
+    let node;
+    while (node = walker.nextNode()) {
+        if (node.textContent.includes(pgpBlock.substring(0, 50))) {
+            let parent = node.parentElement;
+            while (parent && parent !== container) {
+                if (parent.textContent === node.textContent && parent.childNodes.length === 1) {
+                    return parent;
+                }
+                parent = parent.parentElement;
+            }
+            return node.parentElement;
+        }
+    }
+    return null;
 }
 
 let observer = null;
@@ -477,8 +545,3 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 loadSettings();
 initializeObserver();
-
-if (typeof window !== 'undefined') {
-    window.__ciphermail_cleanup = cleanupObserver;
-    window.__ciphermail_handleEncrypt = (btn, composeBox, backupContent, sign) => handleEncrypt(btn, composeBox, backupContent, sign);
-}

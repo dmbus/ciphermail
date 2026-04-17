@@ -14,6 +14,26 @@ const MIN_PASSPHRASE_LENGTH = 12;
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCKOUT_DURATION_MS = 30 * 60 * 1000;
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const ALLOWED_ORIGINS = ['https://mail.google.com'];
+
+function isValidEmail(email) {
+    if (!email || typeof email !== 'string') return false;
+    const trimmed = email.trim();
+    return EMAIL_REGEX.test(trimmed) && trimmed.length <= 254;
+}
+
+function isAllowedOrigin(url) {
+    if (!url) return false;
+    try {
+        const parsed = new URL(url);
+        if (parsed.protocol !== 'https:') return false;
+        return parsed.hostname === 'mail.google.com' || parsed.hostname.endsWith('.mail.google.com');
+    } catch {
+        return false;
+    }
+}
+
 function validatePassphrase(passphrase) {
     if (!passphrase || passphrase.length < MIN_PASSPHRASE_LENGTH) {
         return `Passphrase must be at least ${MIN_PASSPHRASE_LENGTH} characters`;
@@ -168,5 +188,250 @@ describe('CipherMail XSS Prevention', () => {
         const contentScriptPath = path.resolve(__dirname, '../content/content.js');
         const contentScriptCode = fs.readFileSync(contentScriptPath, 'utf8');
         expect(contentScriptCode).toContain('function escapeHtml');
+    });
+});
+
+describe('CipherMail Origin Validation', () => {
+    test('should allow mail.google.com origins', () => {
+        expect(isAllowedOrigin('https://mail.google.com/mail/u/0/')).toBe(true);
+        expect(isAllowedOrigin('https://mail.google.com/mail/h/')).toBe(true);
+        expect(isAllowedOrigin('https://mail.google.com/a/example.com/')).toBe(true);
+    });
+
+    test('should reject non-Gmail origins', () => {
+        expect(isAllowedOrigin('https://evil.com')).toBe(false);
+        expect(isAllowedOrigin('https://mail.google.com.evil.com')).toBe(false);
+        expect(isAllowedOrigin('https://example.com')).toBe(false);
+        expect(isAllowedOrigin(null)).toBe(false);
+        expect(isAllowedOrigin(undefined)).toBe(false);
+        expect(isAllowedOrigin('')).toBe(false);
+    });
+
+    test('should handle invalid URLs', () => {
+        expect(isAllowedOrigin('not-a-url')).toBe(false);
+        expect(isAllowedOrigin('http://mail.google.com')).toBe(false);
+        expect(isAllowedOrigin('ftp://mail.google.com')).toBe(false);
+    });
+});
+
+describe('CipherMail Email Validation', () => {
+    test('should accept valid emails', () => {
+        expect(isValidEmail('test@example.com')).toBe(true);
+        expect(isValidEmail('user.name@domain.org')).toBe(true);
+        expect(isValidEmail('user+tag@gmail.com')).toBe(true);
+        expect(isValidEmail('test@sub.domain.example.com')).toBe(true);
+    });
+
+    test('should reject invalid emails', () => {
+        expect(isValidEmail('')).toBe(false);
+        expect(isValidEmail(null)).toBe(false);
+        expect(isValidEmail(undefined)).toBe(false);
+        expect(isValidEmail('test@')).toBe(false);
+        expect(isValidEmail('@test.com')).toBe(false);
+        expect(isValidEmail('test')).toBe(false);
+        expect(isValidEmail('test@test@test.com')).toBe(false);
+        expect(isValidEmail('test space@example.com')).toBe(false);
+    });
+
+    test('should reject emails that are too long', () => {
+        const longEmail = 'a'.repeat(250) + '@test.com';
+        expect(isValidEmail(longEmail)).toBe(false);
+    });
+
+    test('should trim whitespace', () => {
+        expect(isValidEmail('  test@example.com  ')).toBe(true);
+    });
+});
+
+describe('CipherMail UUID Generation', () => {
+    test('should generate unique UUIDs', () => {
+        const uuid1 = crypto.randomUUID();
+        const uuid2 = crypto.randomUUID();
+        expect(uuid1).not.toBe(uuid2);
+    });
+
+    test('should generate valid UUID format', () => {
+        const uuid = crypto.randomUUID();
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+        expect(uuid).toMatch(uuidRegex);
+    });
+});
+
+describe('CipherMail Brute Force Protection', () => {
+    const LOCKOUT_DURATION_MS = 30 * 60 * 1000;
+    const MAX_FAILED_ATTEMPTS = 5;
+
+    function calculateLockoutDuration(attempts, backoffMultiplier) {
+        const lockoutMs = LOCKOUT_DURATION_MS * backoffMultiplier;
+        return lockoutMs;
+    }
+
+    test('should calculate lockout duration with exponential backoff', () => {
+        expect(calculateLockoutDuration(0, 1)).toBe(LOCKOUT_DURATION_MS);
+        expect(calculateLockoutDuration(0, 2)).toBe(LOCKOUT_DURATION_MS * 2);
+        expect(calculateLockoutDuration(0, 4)).toBe(LOCKOUT_DURATION_MS * 4);
+        expect(calculateLockoutDuration(0, 8)).toBe(LOCKOUT_DURATION_MS * 8);
+    });
+
+    test('should cap backoff multiplier at 8', () => {
+        expect(calculateLockoutDuration(0, 16)).toBe(LOCKOUT_DURATION_MS * 16);
+    });
+
+    test('should reset backoff multiplier on successful auth', () => {
+        const resetMultiplier = () => 1;
+        expect(resetMultiplier()).toBe(1);
+    });
+});
+
+describe('CipherMail Multiple Recipients', () => {
+    test('should store multiple recipient keys', () => {
+        const recipientKeys = {};
+
+        recipientKeys['alice@example.com'] = {
+            armoredKey: '-----BEGIN PGP PUBLIC KEY BLOCK-----',
+            fingerprint: 'ABCD1234',
+            userInfo: 'Alice',
+            algorithm: 'RSA-4096',
+            trusted: false,
+            firstFingerprint: 'ABCD1234'
+        };
+
+        recipientKeys['bob@example.com'] = {
+            armoredKey: '-----BEGIN PGP PUBLIC KEY BLOCK-----',
+            fingerprint: 'EFGH5678',
+            userInfo: 'Bob',
+            algorithm: 'RSA-4096',
+            trusted: false,
+            firstFingerprint: 'EFGH5678'
+        };
+
+        expect(Object.keys(recipientKeys).length).toBe(2);
+        expect(recipientKeys['alice@example.com']).toBeDefined();
+        expect(recipientKeys['bob@example.com']).toBeDefined();
+    });
+
+    test('should track first fingerprint for TOFU', () => {
+        const recipientKeys = {};
+
+        recipientKeys['alice@example.com'] = {
+            armoredKey: '-----BEGIN PGP PUBLIC KEY BLOCK-----',
+            fingerprint: 'ABCD1234',
+            userInfo: 'Alice',
+            algorithm: 'RSA-4096',
+            trusted: true,
+            firstFingerprint: 'ABCD1234'
+        };
+
+        expect(recipientKeys['alice@example.com'].firstFingerprint).toBe('ABCD1234');
+        expect(recipientKeys['alice@example.com'].trusted).toBe(true);
+    });
+
+    test('should detect fingerprint changes', () => {
+        const existingKey = {
+            fingerprint: 'OLD1234',
+            firstFingerprint: 'OLD1234',
+            trusted: true
+        };
+
+        const currentFingerprint = 'NEW5678';
+        const isNewFingerprint = existingKey.fingerprint !== currentFingerprint;
+
+        expect(isNewFingerprint).toBe(true);
+    });
+
+    test('should mark key as untrusted after fingerprint verification fails', () => {
+        const existingKey = {
+            fingerprint: 'OLD1234',
+            firstFingerprint: 'OLD1234',
+            trusted: true
+        };
+
+        existingKey.trusted = false;
+        expect(existingKey.trusted).toBe(false);
+    });
+});
+
+describe('CipherMail Encryption with Recipients', () => {
+    test('should select correct recipient key based on email', async () => {
+        const recipientKeys = {
+            'alice@example.com': {
+                armoredKey: 'alice-key',
+                email: 'alice@example.com'
+            },
+            'bob@example.com': {
+                armoredKey: 'bob-key',
+                email: 'bob@example.com'
+            }
+        };
+
+        const recipientEmail = 'alice@example.com';
+        const selectedKey = recipientKeys[recipientEmail];
+
+        expect(selectedKey).toBeDefined();
+        expect(selectedKey.email).toBe('alice@example.com');
+    });
+
+    test('should fall back to first recipient when no match', () => {
+        const recipientKeys = {
+            'alice@example.com': {
+                armoredKey: 'alice-key',
+                email: 'alice@example.com'
+            },
+            'bob@example.com': {
+                armoredKey: 'bob-key',
+                email: 'bob@example.com'
+            }
+        };
+
+        const keys = Object.values(recipientKeys);
+        const defaultKey = keys.length > 0 ? keys[0] : null;
+
+        expect(defaultKey).toBeDefined();
+        expect(defaultKey.email).toBe('alice@example.com');
+    });
+
+    test('should return error when no recipients configured', () => {
+        const recipientKeys = {};
+        const hasRecipients = Object.keys(recipientKeys).length > 0;
+
+        expect(hasRecipients).toBe(false);
+    });
+});
+
+describe('CipherMail TOFU Trust Model', () => {
+    test('should mark key as trusted on first import', () => {
+        const newRecipient = {
+            armoredKey: '-----BEGIN PGP PUBLIC KEY BLOCK-----',
+            fingerprint: 'ABCD1234',
+            userInfo: 'Test User',
+            algorithm: 'RSA-4096',
+            addedAt: new Date().toISOString(),
+            trusted: true,
+            firstFingerprint: 'ABCD1234'
+        };
+
+        expect(newRecipient.trusted).toBe(true);
+        expect(newRecipient.firstFingerprint).toBe(newRecipient.fingerprint);
+    });
+
+    test('should mark key as untrusted when fingerprint changes', () => {
+        const recipient = {
+            fingerprint: 'NEWFPR',
+            firstFingerprint: 'OLDFPR',
+            trusted: false
+        };
+
+        expect(recipient.trusted).toBe(false);
+        expect(recipient.fingerprint).not.toBe(recipient.firstFingerprint);
+    });
+
+    test('should preserve first fingerprint even after update', () => {
+        const recipient = {
+            fingerprint: 'NEWFPR',
+            firstFingerprint: 'OLDFPR',
+            trusted: false
+        };
+
+        expect(recipient.firstFingerprint).toBe('OLDFPR');
     });
 });

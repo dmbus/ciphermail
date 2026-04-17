@@ -276,3 +276,80 @@ body.dark .sub-setting { background: #252525; }
   font-size: 11px;
   border: 1px solid #dadce0;
 }
+
+.shortcut-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+body.dark .shortcut-item { background: #252525; }
+
+.shortcut-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.shortcut-name {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.shortcut-desc {
+  font-size: 11px;
+  color: #5f6368;
+}
+body.dark .shortcut-desc { color: #999; }
+
+.shortcut-keys {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.shortcut-button {
+  min-width: 100px;
+  padding: 8px 12px;
+  background: #fff;
+  border: 1px solid #dadce0;
+  border-radius: 6px;
+  font-family: monospace;
+  font-size: 12px;
+  cursor: pointer;
+  text-align: center;
+}
+body.dark .shortcut-button { background: #333; border-color: #555; color: #fff; }
+body.dark .shortcut-button:hover { background: #444; }
+
+.shortcut-button.recording {
+  border-color: #1a73e8;
+  background: #e8f0fe;
+  animation: pulse 1s infinite;
+}
+body.dark .shortcut-button.recording { background: #1a3a5c; }
+
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(26, 115, 232, 0.4); }
+  50% { box-shadow: 0 0 0 4px rgba(26, 115, 232, 0.2); }
+}
+
+.shortcut-reset {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 50%;
+  background: #f1f3f4;
+  border: none;
+  color: #5f6368;
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+body.dark .shortcut-reset { background: #333; color: #999; }
+body.dark .shortcut-reset:hover { background: #444; color: #fff; }

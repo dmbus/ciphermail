@@ -198,32 +198,29 @@ document.getElementById('showQRCode')?.addEventListener('click', () => {
         return;
     }
 
-    const canvas = document.getElementById('qrCanvas');
-    const ctx = canvas.getContext('2d');
+    if (confirm('This will open a modal where you can copy your public key.\nFor sharing via QR codes, consider using a dedicated QR code application.')) {
+        const modal = document.getElementById('qrModal');
+        const canvas = document.getElementById('qrCanvas');
+        const ctx = canvas.getContext('2d');
 
-    canvas.width = 200;
-    canvas.height = 200;
-    ctx.fillStyle = 'white';
-    ctx.fillRect(0, 0, 200, 200);
+        canvas.width = 200;
+        canvas.height = 200;
+        ctx.fillStyle = '#f8f9fa';
+        ctx.fillRect(0, 0, 200, 200);
 
-    ctx.fillStyle = 'black';
-    ctx.font = '10px monospace';
-    ctx.textAlign = 'center';
+        ctx.fillStyle = '#5f6368';
+        ctx.font = '14px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('Public Key', 100, 80);
+        ctx.font = '11px monospace';
+        ctx.fillText('Copy below', 100, 100);
+        ctx.fillText('or use', 100, 130);
+        ctx.font = '12px sans-serif';
+        ctx.fillText('Copy Public Key', 100, 155);
+        ctx.fillText('button instead', 100, 172);
 
-    const lines = pubKey.split('\n');
-    let y = 20;
-    lines.forEach(line => {
-        if (line.length > 40) {
-            ctx.fillText(line.substring(0, 40), 100, y);
-            y += 12;
-            ctx.fillText(line.substring(40), 100, y);
-        } else {
-            ctx.fillText(line, 100, y);
-        }
-        y += 12;
-    });
-
-    document.getElementById('qrModal').style.display = 'flex';
+        modal.style.display = 'flex';
+    }
 });
 
 document.querySelectorAll('.modal-close').forEach(btn => {
@@ -493,13 +490,21 @@ document.getElementById('lookupKey').onclick = async () => {
             resultDiv.style.borderLeft = '4px solid #0f9d58';
             importBtn.style.display = 'block';
         } else {
-            resultDiv.innerHTML = `<div style="color:#d93025;">${response.error || 'No key found for this email.'}</div>`;
+            resultDiv.innerHTML = '';
+            const errorDiv = document.createElement('div');
+            errorDiv.style.color = '#d93025';
+            errorDiv.textContent = response.error || 'No key found for this email.';
+            resultDiv.appendChild(errorDiv);
             resultDiv.style.background = '#fce8e6';
             resultDiv.style.borderLeft = '4px solid #d93025';
         }
         resultDiv.style.display = 'block';
     } catch (err) {
-        resultDiv.innerHTML = `<div style="color:#d93025;">Search failed. Please try again.</div>`;
+        resultDiv.innerHTML = '';
+        const errorDiv = document.createElement('div');
+        errorDiv.style.color = '#d93025';
+        errorDiv.textContent = 'Search failed. Please try again.';
+        resultDiv.appendChild(errorDiv);
         resultDiv.style.background = '#fce8e6';
         resultDiv.style.borderLeft = '4px solid #d93025';
         resultDiv.style.display = 'block';
@@ -625,12 +630,22 @@ document.getElementById('exportSettings')?.addEventListener('click', async () =>
 
     try {
         const storage = await chrome.storage.local.get(['settings', 'publicKeyArmored', 'defaultRecipient']);
+        const hasRecipientData = storage.publicKeyArmored || storage.defaultRecipient;
+
+        if (hasRecipientData) {
+            const confirmed = confirm('Your settings export will include your recipient\'s public key and email address. Make sure you trust the recipient before sharing this file.');
+            if (!confirmed) {
+                setButtonLoading(btn, false);
+                return;
+            }
+        }
+
         const exportData = {
             version: 1,
             exportedAt: new Date().toISOString(),
             settings: storage.settings || {},
-            publicKeyArmored: storage.publicKeyArmored,
-            defaultRecipient: storage.defaultRecipient
+            publicKeyArmored: storage.publicKeyArmored || null,
+            defaultRecipient: storage.defaultRecipient || null
         };
 
         const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
@@ -742,6 +757,192 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
+let currentlyRecordingShortcut = null;
+
+function formatShortcutForDisplay(shortcut) {
+    if (!shortcut || shortcut === 'Unassigned') return 'Unassigned';
+
+    const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+    let display = shortcut;
+
+    if (isMac) {
+        display = shortcut.replace(/Ctrl\+/g, '⌘').replace(/Ctrl/gi, '⌘');
+    } else {
+        display = shortcut.replace(/Command\+/g, 'Ctrl+').replace(/Command/gi, 'Ctrl');
+    }
+
+    display = display.replace(/\+/g, ' + ');
+
+    return display;
+}
+
+function normalizeShortcutForChrome(shortcut) {
+    return shortcut
+        .replace(/⌘/g, 'Command+')
+        .replace(/ctrl\+/gi, 'Ctrl+')
+        .replace(/alt\+/gi, 'Alt+')
+        .replace(/shift\+/gi, 'Shift+')
+        .replace(/meta\+/gi, 'Meta+');
+}
+
+async function loadShortcuts() {
+    try {
+        const response = await chrome.runtime.sendMessage({ type: 'GET_SHORTCUTS' });
+        if (response && response.success && response.shortcuts) {
+            for (const [cmdName, info] of Object.entries(response.shortcuts)) {
+                const btn = document.getElementById(`shortcut-${cmdName}`);
+                if (btn) {
+                    const display = formatShortcutForDisplay(info.current);
+                    btn.textContent = display;
+                    btn.dataset.shortcut = info.current;
+                }
+            }
+        }
+    } catch (err) {
+        console.error('Failed to load shortcuts:', err);
+    }
+}
+
+document.querySelectorAll('.shortcut-button').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+        e.preventDefault();
+
+        if (currentlyRecordingShortcut) {
+            currentlyRecordingShortcut.classList.remove('recording');
+        }
+
+        btn.classList.add('recording');
+        btn.textContent = 'Press keys...';
+        currentlyRecordingShortcut = btn;
+
+        const errorEl = document.getElementById('shortcut-error');
+        if (errorEl) errorEl.style.display = 'none';
+    });
+});
+
+document.querySelectorAll('.shortcut-button').forEach(btn => {
+    btn.addEventListener('keydown', async (e) => {
+        if (!btn.classList.contains('recording')) return;
+
+        e.preventDefault();
+        e.stopPropagation();
+
+        if (e.key === 'Escape') {
+            const cmdName = btn.dataset.command;
+            const response = await chrome.runtime.sendMessage({ type: 'GET_SHORTCUTS' });
+            if (response && response.shortcuts && response.shortcuts[cmdName]) {
+                btn.textContent = formatShortcutForDisplay(response.shortcuts[cmdName].current);
+            }
+            btn.classList.remove('recording');
+            currentlyRecordingShortcut = null;
+            return;
+        }
+
+        if (e.key === 'Enter') {
+            const cmdName = btn.dataset.command;
+            const shortcut = btn.dataset.shortcut;
+
+            if (shortcut && shortcut !== 'Unassigned') {
+                const updateResponse = await chrome.runtime.sendMessage({
+                    type: 'UPDATE_SHORTCUT',
+                    command: cmdName,
+                    shortcut: normalizeShortcutForChrome(shortcut)
+                });
+
+                if (updateResponse && !updateResponse.success) {
+                    const errorEl = document.getElementById('shortcut-error');
+                    if (errorEl) {
+                        errorEl.textContent = updateResponse.error || 'Failed to update shortcut';
+                        errorEl.style.display = 'block';
+                    }
+                } else {
+                    showToast('Shortcut updated!', 'success');
+                }
+            }
+
+            btn.classList.remove('recording');
+            currentlyRecordingShortcut = null;
+            return;
+        }
+
+        const parts = [];
+        if (e.ctrlKey) parts.push('Ctrl');
+        if (e.altKey) parts.push('Alt');
+        if (e.shiftKey) parts.push('Shift');
+        if (e.metaKey) parts.push('Command');
+
+        let key = e.key;
+        if (key.length === 1) {
+            key = key.toUpperCase();
+        } else if (key.startsWith('F') && /F\d{1,2}/.test(key)) {
+            // Keep function keys as is
+        } else if (key !== 'Control' && key !== 'Alt' && key !== 'Shift' && key !== 'Meta') {
+            parts.push(key.toUpperCase());
+        }
+
+        if (parts.length > 0) {
+            const shortcut = parts.join('+');
+            btn.textContent = formatShortcutForDisplay(shortcut);
+            btn.dataset.shortcut = shortcut;
+        }
+    });
+});
+
+document.querySelectorAll('.shortcut-reset').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const cmdName = btn.dataset.command;
+
+        const response = await chrome.runtime.sendMessage({
+            type: 'UPDATE_SHORTCUT',
+            command: cmdName,
+            shortcut: 'reset'
+        });
+
+        if (response && response.success) {
+            await loadShortcuts();
+            showToast('Shortcut reset to default', 'info');
+        } else {
+            const errorEl = document.getElementById('shortcut-error');
+            if (errorEl) {
+                errorEl.textContent = response?.error || 'Failed to reset shortcut';
+                errorEl.style.display = 'block';
+            }
+        }
+    });
+});
+
+document.getElementById('resetAllShortcuts')?.addEventListener('click', async () => {
+    if (!confirm('Reset all shortcuts to their default values?')) return;
+
+    const response = await chrome.runtime.sendMessage({ type: 'RESET_SHORTCUTS' });
+
+    if (response && response.success) {
+        await loadShortcuts();
+        showToast('All shortcuts reset to defaults', 'info');
+    } else {
+        const errorEl = document.getElementById('shortcut-error');
+        if (errorEl) {
+            errorEl.textContent = response?.error || 'Failed to reset shortcuts';
+            errorEl.style.display = 'block';
+        }
+    }
+});
+
+document.addEventListener('click', (e) => {
+    if (currentlyRecordingShortcut && !e.target.classList.contains('shortcut-button')) {
+        currentlyRecordingShortcut.classList.remove('recording');
+        const cmdName = currentlyRecordingShortcut.dataset.command;
+        loadShortcuts().then(() => {
+            const btn = document.getElementById(`shortcut-${cmdName}`);
+            if (btn) {
+                btn.textContent = btn.dataset.shortcut || 'Unassigned';
+            }
+        });
+        currentlyRecordingShortcut = null;
+    }
+});
+
 chrome.storage.local.get(['settings', 'publicKeyArmored', 'myPublicKey', 'sessionLocked'], (data) => {
     if (data.settings) {
         applySettings(data.settings);
@@ -761,4 +962,5 @@ chrome.storage.local.get(['settings', 'publicKeyArmored', 'myPublicKey', 'sessio
 
     loadStoredKeys();
     startActivityMonitor();
+    loadShortcuts();
 });

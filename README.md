@@ -21,6 +21,10 @@ PGP Encryption for Gmail - A Chrome Extension
 - Passphrase strength validation
 - Automatic clipboard clearing
 - Session timeout
+- Origin validation on all message handlers
+- Message length limits to prevent DoS
+- XSS prevention with proper HTML escaping
+- Settings input sanitization
 
 ## Installation
 
@@ -39,12 +43,7 @@ PGP Encryption for Gmail - A Chrome Extension
 ```bash
 npm install
 npm run build
-```
-
-To watch for changes:
-
-```bash
-npm run build:watch
+npm test
 ```
 
 ## Usage
@@ -101,6 +100,7 @@ npm run build:watch
 
 - Google Chrome 109+
 - Microsoft Edge 109+
+- Mozilla Firefox 109+
 - Chromium-based browsers
 
 ## Privacy

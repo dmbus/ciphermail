@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "description": "PGP Encryption for Gmail - Encrypt and decrypt emails with OpenPGP",
   "permissions": ["storage", "activeTab", "offscreen", "commands"],
-  "host_permissions": ["https://mail.google.com/*", "https://keys.openpgp.org/*", "https://keyserver.ubuntu.com/*", "https://pgpkeys.eu/*"],
+  "host_permissions": ["https://mail.google.com/*", "https://keys.openpgp.org/", "https://keyserver.ubuntu.com/", "https://pgpkeys.eu/"],
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'none';"
   },
@@ -37,7 +37,7 @@
   "content_scripts": [
     {
       "matches": ["https://mail.google.com/*"],
-      "js": ["libs/openpgp.min.js", "content/content.js"],
+      "js": ["content/content.js"],
       "run_at": "document_idle"
     }
   ],

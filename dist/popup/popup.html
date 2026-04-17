@@ -11,6 +11,7 @@
     <div class="tabs">
         <button class="tab active" data-tab="keys">Keys</button>
         <button class="tab" data-tab="compose">Compose</button>
+        <button class="tab" data-tab="shortcuts">Shortcuts</button>
         <button class="tab" data-tab="settings">Settings</button>
     </div>
 
@@ -119,6 +120,53 @@
         </div>
     </div>
 
+    <div id="tab-shortcuts" class="tab-content">
+        <div class="section">
+            <label>Keyboard Shortcuts</label>
+            <p style="font-size:11px;color:#5f6368;margin-bottom:16px;">Click on a shortcut to change it. Press Escape to cancel, Enter to save.</p>
+
+            <div class="shortcut-item">
+                <div class="shortcut-info">
+                    <span class="shortcut-name">Encrypt Message</span>
+                    <span id="shortcut-encrypt-desc" class="shortcut-desc">Encrypt the current message</span>
+                </div>
+                <div class="shortcut-keys">
+                    <button id="shortcut-encrypt" class="shortcut-button" data-command="encrypt">Ctrl+Shift+E</button>
+                    <button class="shortcut-reset" data-command="encrypt" title="Reset to default">↺</button>
+                </div>
+            </div>
+
+            <div class="shortcut-item">
+                <div class="shortcut-info">
+                    <span class="shortcut-name">Decrypt Message</span>
+                    <span id="shortcut-decrypt-desc" class="shortcut-desc">Decrypt the selected message</span>
+                </div>
+                <div class="shortcut-keys">
+                    <button id="shortcut-decrypt" class="shortcut-button" data-command="decrypt">Ctrl+Shift+D</button>
+                    <button class="shortcut-reset" data-command="decrypt" title="Reset to default">↺</button>
+                </div>
+            </div>
+
+            <div class="shortcut-item">
+                <div class="shortcut-info">
+                    <span class="shortcut-name">Sign Message</span>
+                    <span id="shortcut-sign-desc" class="shortcut-desc">Sign the current message</span>
+                </div>
+                <div class="shortcut-keys">
+                    <button id="shortcut-sign" class="shortcut-button" data-command="sign">Ctrl+Shift+S</button>
+                    <button class="shortcut-reset" data-command="sign" title="Reset to default">↺</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <p id="shortcut-error" style="color:#d93025;font-size:12px;display:none;"></p>
+            <button id="resetAllShortcuts" class="button-secondary" style="margin-top:12px;">
+                Reset All Shortcuts
+            </button>
+        </div>
+    </div>
+
     <div id="tab-settings" class="tab-content">
         <div class="section">
             <label>Security</label>
@@ -154,15 +202,6 @@
             <div class="checkbox-option">
                 <input type="checkbox" id="darkMode">
                 <label for="darkMode">Dark mode</label>
-            </div>
-        </div>
-
-        <div class="section">
-            <label>Keyboard Shortcuts</label>
-            <div style="font-size:12px;color:#5f6368;margin-bottom:8px;">
-                <p><strong>Ctrl+Shift+E</strong> - Encrypt message</p>
-                <p><strong>Ctrl+Shift+D</strong> - Decrypt message</p>
-                <p><strong>Ctrl+Shift+S</strong> - Sign message</p>
             </div>
         </div>
 

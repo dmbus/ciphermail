@@ -26,6 +26,26 @@ const LOCKOUT_DURATION_MS = 30 * 60 * 1000;
 
 const BRUTE_FORCE_KEY = 'bruteForceData';
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const ALLOWED_ORIGINS = ['https://mail.google.com'];
+
+function isValidEmail(email) {
+    if (!email || typeof email !== 'string') return false;
+    const trimmed = email.trim();
+    return EMAIL_REGEX.test(trimmed) && trimmed.length <= 254;
+}
+
+function isAllowedOrigin(url) {
+    if (!url) return false;
+    try {
+        const parsed = new URL(url);
+        if (parsed.protocol !== 'https:') return false;
+        return parsed.hostname === 'mail.google.com' || parsed.hostname.endsWith('.mail.google.com');
+    } catch {
+        return false;
+    }
+}
+
 function validatePassphrase(passphrase) {
     if (!passphrase || passphrase.length < MIN_PASSPHRASE_LENGTH) {
         return `Passphrase must be at least ${MIN_PASSPHRASE_LENGTH} characters`;
@@ -47,37 +67,42 @@ function validatePassphrase(passphrase) {
 
 async function getBruteForceData() {
     const result = await chrome.storage.local.get(BRUTE_FORCE_KEY);
-    return result[BRUTE_FORCE_KEY] || { attempts: 0, lockoutUntil: 0 };
+    return result[BRUTE_FORCE_KEY] || { attempts: 0, lockoutUntil: 0, backoffMultiplier: 1 };
 }
 
 async function recordFailedAttempt() {
     const data = await getBruteForceData();
     data.attempts += 1;
+    data.backoffMultiplier = Math.min(data.backoffMultiplier + 1, 8);
+
     if (data.attempts >= MAX_FAILED_ATTEMPTS) {
-        data.lockoutUntil = Date.now() + LOCKOUT_DURATION_MS;
+        const baseLockout = LOCKOUT_DURATION_MS;
+        const lockoutMs = baseLockout * data.backoffMultiplier;
+        data.lockoutUntil = Date.now() + lockoutMs;
         data.attempts = 0;
     }
     await chrome.storage.local.set({ [BRUTE_FORCE_KEY]: data });
 }
 
 async function resetBruteForceAttempts() {
-    await chrome.storage.local.set({ [BRUTE_FORCE_KEY]: { attempts: 0, lockoutUntil: 0 } });
+    await chrome.storage.local.set({ [BRUTE_FORCE_KEY]: { attempts: 0, lockoutUntil: 0, backoffMultiplier: 1 } });
 }
 
 async function isLockedOut() {
     const data = await getBruteForceData();
     if (data.lockoutUntil > Date.now()) {
         const remainingMinutes = Math.ceil((data.lockoutUntil - Date.now()) / 60000);
-        return { locked: true, remainingMinutes };
+        return { locked: true, remainingMinutes, backoffMultiplier: data.backoffMultiplier };
     }
     if (data.lockoutUntil > 0 && data.lockoutUntil <= Date.now()) {
         await resetBruteForceAttempts();
     }
-    return { locked: false };
+    return { locked: false, backoffMultiplier: 1 };
 }
 
 let pendingPassphraseResolver = null;
 let passphraseRequestQueue = [];
+const pendingRequests = new Map();
 
 function processPassphraseQueue(passphrase) {
     if (passphraseRequestQueue.length > 0) {
@@ -89,6 +114,14 @@ function processPassphraseQueue(passphrase) {
 }
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    const sensitiveTypes = ['ENCRYPT', 'DECRYPT', 'ENCRYPT_AND_SIGN', 'SIGN_MESSAGE', 'VERIFY_SIGNATURE'];
+    if (sensitiveTypes.includes(request.type)) {
+        if (!sender.tab || !isAllowedOrigin(sender.tab.url)) {
+            sendResponse({ error: 'Unauthorized: Invalid origin' });
+            return false;
+        }
+    }
+
     if (request.type === 'ENCRYPT') {
         handleEncryption(request.data).then(sendResponse);
         return true;
@@ -106,10 +139,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         sendResponse({ valid: !error, error });
         return true;
     } else if (request.type === 'REQUEST_PASSPHRASE') {
-        const requestId = Date.now() + Math.random();
+        const requestId = crypto.randomUUID();
         const promise = new Promise((resolve) => {
             passphraseRequestQueue.push({ requestId, resolve });
         });
+
+        pendingRequests.set(requestId, { resolve: sendResponse, timeout: Date.now() + 30000 });
 
         if (!pendingPassphraseResolver) {
             chrome.offscreen.createDocument({
@@ -120,12 +155,17 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 pendingPassphraseResolver = { requestId, sendResponse };
             }).catch(err => {
                 passphraseRequestQueue = passphraseRequestQueue.filter(r => r.requestId !== requestId);
+                pendingRequests.delete(requestId);
                 sendResponse({ error: err.message });
             });
         }
 
         promise.then((passphrase) => {
-            sendResponse({ passphrase });
+            const pending = pendingRequests.get(requestId);
+            if (pending) {
+                pending.resolve({ passphrase });
+                pendingRequests.delete(requestId);
+            }
         });
 
         return true;
@@ -171,14 +211,56 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     } else if (request.type === 'SET_DEFAULT_RECIPIENT') {
         handleSetDefaultRecipient(request.email, request.key).then(sendResponse);
         return true;
+    } else if (request.type === 'ADD_RECIPIENT') {
+        handleAddRecipient(request.email, request.key).then(sendResponse);
+        return true;
+    } else if (request.type === 'REMOVE_RECIPIENT') {
+        handleRemoveRecipient(request.email).then(sendResponse);
+        return true;
+    } else if (request.type === 'LIST_RECIPIENTS') {
+        handleListRecipients().then(sendResponse);
+        return true;
+    } else if (request.type === 'SET_DEFAULT_RECIPIENT_EMAIL') {
+        handleSetDefaultRecipientEmail(request.email).then(sendResponse);
+        return true;
+    } else if (request.type === 'VERIFY_RECIPIENT_FINGERPRINT') {
+        handleVerifyRecipientFingerprint(request.email).then(sendResponse);
+        return true;
+    } else if (request.type === 'GET_SHORTCUTS') {
+        handleGetShortcuts().then(sendResponse);
+        return true;
+    } else if (request.type === 'UPDATE_SHORTCUT') {
+        handleUpdateShortcut(request.command, request.shortcut).then(sendResponse);
+        return true;
+    } else if (request.type === 'RESET_SHORTCUTS') {
+        handleResetShortcuts().then(sendResponse);
+        return true;
     }
 });
 
-async function handleEncryption(text) {
+async function handleEncryption(text, recipientEmail = null) {
     try {
-        const { publicKeyArmored } = await chrome.storage.local.get('publicKeyArmored');
+        const storage = await chrome.storage.local.get(['recipientKeys', 'defaultRecipientEmail']);
+        const recipientKeys = storage.recipientKeys || {};
+        let publicKeyArmored = null;
+        let selectedEmail = null;
+
+        if (recipientEmail && recipientKeys[recipientEmail]) {
+            publicKeyArmored = recipientKeys[recipientEmail].armoredKey;
+            selectedEmail = recipientEmail;
+        } else if (storage.defaultRecipientEmail && recipientKeys[storage.defaultRecipientEmail]) {
+            publicKeyArmored = recipientKeys[storage.defaultRecipientEmail].armoredKey;
+            selectedEmail = storage.defaultRecipientEmail;
+        } else {
+            const keys = Object.values(recipientKeys);
+            if (keys.length > 0) {
+                publicKeyArmored = keys[0].armoredKey;
+                selectedEmail = keys[0].email;
+            }
+        }
+
         if (!publicKeyArmored) {
-            return { success: false, error: 'No recipient public key configured.' };
+            return { success: false, error: 'No recipient public key configured. Please add a recipient key first.' };
         }
 
         const publicKey = await openpgp.readKey({ armoredKey: publicKeyArmored });
@@ -187,7 +269,33 @@ async function handleEncryption(text) {
             message,
             encryptionKeys: publicKey
         });
-        return { success: true, data: encrypted };
+        return { success: true, data: encrypted, recipientEmail: selectedEmail };
+    } catch (err) {
+        return { success: false, error: 'Encryption failed. Please try again.' };
+    }
+}
+
+async function handleEncryptWithRecipient(text, recipientEmail) {
+    try {
+        const storage = await chrome.storage.local.get('recipientKeys');
+        const recipientKeys = storage.recipientKeys || {};
+
+        if (!recipientEmail) {
+            return { success: false, error: 'Recipient email is required.' };
+        }
+
+        if (!recipientKeys[recipientEmail]) {
+            return { success: false, error: `No key found for recipient: ${recipientEmail}` };
+        }
+
+        const publicKeyArmored = recipientKeys[recipientEmail].armoredKey;
+        const publicKey = await openpgp.readKey({ armoredKey: publicKeyArmored });
+        const message = await openpgp.createMessage({ text: text });
+        const encrypted = await openpgp.encrypt({
+            message,
+            encryptionKeys: publicKey
+        });
+        return { success: true, data: encrypted, recipientEmail };
     } catch (err) {
         return { success: false, error: 'Encryption failed. Please try again.' };
     }
@@ -313,7 +421,7 @@ const KEY_SERVERS = [
 ];
 
 async function handleKeyLookup(email) {
-    if (!email || !email.includes('@')) {
+    if (!isValidEmail(email)) {
         return { success: false, error: 'Invalid email address' };
     }
 
@@ -348,7 +456,6 @@ async function handleKeyLookup(email) {
                 }
             }
         } catch (err) {
-            console.error(`Key lookup failed on ${server}:`, err);
             continue;
         }
     }
@@ -616,18 +723,19 @@ async function handleGetStoredKeys() {
             }
         }
 
-        if (storage.publicKeyArmored) {
-            try {
-                const key = await openpgp.readKey({ armoredKey: storage.publicKeyArmored });
-                const primaryUser = key.getPrimaryUser();
-                result.recipientKeyInfo = {
-                    fingerprint: key.getFingerprint().toUpperCase(),
-                    algorithm: key.getAlgorithmInfo().bits ? `RSA-${key.getAlgorithmInfo().bits}` : 'RSA',
-                    user: primaryUser ? primaryUser.user.userID.userID : 'Unknown'
-                };
-            } catch (e) {
-                result.recipientKeyInfo = null;
-            }
+        const recipientKeys = storage.recipientKeys || {};
+        const recipientEmails = Object.keys(recipientKeys);
+        result.hasRecipientKey = recipientEmails.length > 0;
+        result.defaultRecipient = storage.defaultRecipientEmail || (recipientEmails.length > 0 ? recipientEmails[0] : null);
+
+        if (recipientEmails.length > 0) {
+            const firstEmail = recipientEmails[0];
+            const firstRecipient = recipientKeys[firstEmail];
+            result.recipientKeyInfo = {
+                fingerprint: firstRecipient.fingerprint,
+                algorithm: firstRecipient.algorithm,
+                user: firstRecipient.userInfo
+            };
         }
 
         return result;
@@ -642,7 +750,7 @@ async function handleDeleteKey(keyType) {
             await chrome.storage.local.remove(['myPublicKey', 'encryptedPrivateKey', 'salt', 'iv']);
             await resetBruteForceAttempts();
         } else if (keyType === 'recipientKey') {
-            await chrome.storage.local.remove(['publicKeyArmored', 'defaultRecipient']);
+            await chrome.storage.local.remove(['recipientKeys', 'defaultRecipientEmail']);
         }
         return { success: true };
     } catch (err) {
@@ -657,5 +765,255 @@ async function handleSetDefaultRecipient(email, key) {
         return { success: true };
     } catch (err) {
         return { success: false, error: 'Failed to set default recipient: ' + err.message };
+    }
+}
+
+async function handleAddRecipient(email, armoredKey) {
+    try {
+        if (!isValidEmail(email)) {
+            return { success: false, error: 'Invalid email address' };
+        }
+
+        if (!armoredKey || !armoredKey.includes('-----BEGIN PGP PUBLIC KEY BLOCK-----')) {
+            return { success: false, error: 'Invalid PGP public key' };
+        }
+
+        const publicKey = await openpgp.readKey({ armoredKey });
+        if (!publicKey.isPublic()) {
+            return { success: false, error: 'This appears to be a private key. Please provide a public key.' };
+        }
+
+        const primaryUser = publicKey.getPrimaryUser();
+        const fingerprint = publicKey.getFingerprint().toUpperCase();
+        const userInfo = primaryUser ? primaryUser.user.userID.userID : email;
+
+        const storage = await chrome.storage.local.get('recipientKeys');
+        const recipientKeys = storage.recipientKeys || {};
+
+        const existingKey = recipientKeys[email];
+        let isNewFingerprint = true;
+        let isTrusted = false;
+
+        if (existingKey) {
+            isNewFingerprint = existingKey.fingerprint !== fingerprint;
+            isTrusted = existingKey.trusted && !isNewFingerprint;
+        }
+
+        recipientKeys[email] = {
+            armoredKey,
+            fingerprint,
+            userInfo,
+            algorithm: publicKey.getAlgorithmInfo().bits ? `RSA-${publicKey.getAlgorithmInfo().bits}` : 'RSA',
+            addedAt: new Date().toISOString(),
+            trusted: isTrusted,
+            firstFingerprint: existingKey?.firstFingerprint || fingerprint
+        };
+
+        await chrome.storage.local.set({ recipientKeys });
+
+        return {
+            success: true,
+            fingerprint,
+            isNewFingerprint,
+            isTrusted,
+            userInfo
+        };
+    } catch (err) {
+        return { success: false, error: 'Failed to add recipient: ' + err.message };
+    }
+}
+
+async function handleRemoveRecipient(email) {
+    try {
+        const storage = await chrome.storage.local.get(['recipientKeys', 'defaultRecipientEmail']);
+        const recipientKeys = storage.recipientKeys || {};
+
+        if (!recipientKeys[email]) {
+            return { success: false, error: 'Recipient not found' };
+        }
+
+        delete recipientKeys[email];
+        await chrome.storage.local.set({ recipientKeys });
+
+        if (storage.defaultRecipientEmail === email) {
+            const remainingEmails = Object.keys(recipientKeys);
+            const newDefault = remainingEmails.length > 0 ? remainingEmails[0] : null;
+            await chrome.storage.local.set({ defaultRecipientEmail: newDefault });
+        }
+
+        return { success: true };
+    } catch (err) {
+        return { success: false, error: 'Failed to remove recipient: ' + err.message };
+    }
+}
+
+async function handleListRecipients() {
+    try {
+        const storage = await chrome.storage.local.get(['recipientKeys', 'defaultRecipientEmail']);
+        const recipientKeys = storage.recipientKeys || {};
+        const defaultRecipientEmail = storage.defaultRecipientEmail || null;
+
+        const recipients = Object.entries(recipientKeys).map(([email, data]) => ({
+            email,
+            fingerprint: data.fingerprint,
+            userInfo: data.userInfo,
+            algorithm: data.algorithm,
+            trusted: data.trusted,
+            isDefault: email === defaultRecipientEmail,
+            firstFingerprint: data.firstFingerprint,
+            isNewFingerprint: data.firstFingerprint !== data.fingerprint,
+            addedAt: data.addedAt
+        }));
+
+        return {
+            success: true,
+            recipients,
+            defaultRecipientEmail
+        };
+    } catch (err) {
+        return { success: false, error: 'Failed to list recipients: ' + err.message };
+    }
+}
+
+async function handleSetDefaultRecipientEmail(email) {
+    try {
+        const storage = await chrome.storage.local.get('recipientKeys');
+        const recipientKeys = storage.recipientKeys || {};
+
+        if (email && !recipientKeys[email]) {
+            return { success: false, error: 'Recipient not found' };
+        }
+
+        await chrome.storage.local.set({ defaultRecipientEmail: email || null });
+        return { success: true };
+    } catch (err) {
+        return { success: false, error: 'Failed to set default recipient: ' + err.message };
+    }
+}
+
+async function handleVerifyRecipientFingerprint(email) {
+    try {
+        const storage = await chrome.storage.local.get('recipientKeys');
+        const recipientKeys = storage.recipientKeys || {};
+
+        if (!recipientKeys[email]) {
+            return { success: false, error: 'Recipient not found' };
+        }
+
+        const data = recipientKeys[email];
+        const currentKey = await openpgp.readKey({ armoredKey: data.armoredKey });
+        const currentFingerprint = currentKey.getFingerprint().toUpperCase();
+
+        return {
+            success: true,
+            email,
+            storedFingerprint: data.fingerprint,
+            currentFingerprint,
+            isMatch: data.fingerprint === currentFingerprint,
+            isTrusted: data.trusted && data.firstFingerprint === currentFingerprint,
+            firstFingerprint: data.firstFingerprint
+        };
+    } catch (err) {
+        return { success: false, error: 'Failed to verify fingerprint: ' + err.message };
+    }
+}
+
+const DEFAULT_SHORTCUTS = {
+    encrypt: { default: 'Ctrl+Shift+E', mac: 'Command+Shift+E' },
+    decrypt: { default: 'Ctrl+Shift+D', mac: 'Command+Shift+D' },
+    sign: { default: 'Ctrl+Shift+S', mac: 'Command+Shift+S' }
+};
+
+async function handleGetShortcuts() {
+    try {
+        const [commands, settings] = await Promise.all([
+            chrome.commands.getAll(),
+            chrome.storage.local.get('shortcuts')
+        ]);
+
+        const shortcuts = {};
+        for (const cmd of commands) {
+            if (cmd.name && DEFAULT_SHORTCUTS[cmd.name]) {
+                shortcuts[cmd.name] = {
+                    current: cmd.shortcut || 'Unassigned',
+                    description: cmd.description || '',
+                    default: DEFAULT_SHORTCUTS[cmd.name],
+                    isCustom: settings.shortcuts?.[cmd.name] ? true : false
+                };
+            }
+        }
+
+        return { success: true, shortcuts };
+    } catch (err) {
+        return { success: false, error: 'Failed to get shortcuts: ' + err.message };
+    }
+}
+
+async function handleUpdateShortcut(command, shortcut) {
+    try {
+        if (!DEFAULT_SHORTCUTS[command]) {
+            return { success: false, error: 'Invalid command' };
+        }
+
+        if (shortcut === 'Unassigned' || shortcut === '') {
+            return { success: false, error: 'Shortcut cannot be empty' };
+        }
+
+        if (shortcut !== 'reset') {
+            const shortcutRegex = /^((Ctrl|Alt|Shift|Meta|Command|Command\+Shift|Command\+Alt)\+)*(Ctrl|Alt|Shift|Meta|Command)?(\+?[A-Z0-9]|F[1-9]|F1[0-2])?$/i;
+            if (!shortcutRegex.test(shortcut)) {
+                return { success: false, error: 'Invalid shortcut format' };
+            }
+        }
+
+        const settings = await chrome.storage.local.get('shortcuts');
+        const shortcuts = settings.shortcuts || {};
+
+        if (shortcut === 'reset') {
+            delete shortcuts[command];
+        } else {
+            shortcuts[command] = shortcut;
+        }
+
+        await chrome.storage.local.set({ shortcuts });
+
+        if (shortcut !== 'reset') {
+            try {
+                await chrome.commands.update({
+                    name: command,
+                    shortcut: shortcut
+                });
+            } catch (updateErr) {
+                return { success: false, error: 'Failed to update shortcut. It may already be in use by another extension.' };
+            }
+        }
+
+        return { success: true };
+    } catch (err) {
+        return { success: false, error: 'Failed to update shortcut: ' + err.message };
+    }
+}
+
+async function handleResetShortcuts() {
+    try {
+        const settings = await chrome.storage.local.get('shortcuts');
+        const shortcuts = settings.shortcuts || {};
+
+        for (const cmdName of Object.keys(DEFAULT_SHORTCUTS)) {
+            delete shortcuts[cmdName];
+            try {
+                await chrome.commands.update({
+                    name: cmdName,
+                    shortcut: DEFAULT_SHORTCUTS[cmdName]
+                });
+            } catch (e) {
+                // Ignore errors for individual commands
+            }
+        }
+
+        await chrome.storage.local.set({ shortcuts });
+        return { success: true };
+    } catch (err) {
+        return { success: false, error: 'Failed to reset shortcuts: ' + err.message };
     }
 }
