@@ -35,6 +35,19 @@ function isValidEmail(email) {
     return EMAIL_REGEX.test(trimmed) && trimmed.length <= 254;
 }
 
+const MAX_MESSAGE_LENGTH = 100000;
+const MAX_KEY_LENGTH = 50000;
+
+function validateMessageLength(text, maxLength = MAX_MESSAGE_LENGTH) {
+    if (!text || typeof text !== 'string') {
+        return { valid: false, error: 'Invalid message format' };
+    }
+    if (text.length > maxLength) {
+        return { valid: false, error: `Message exceeds maximum length of ${maxLength} characters` };
+    }
+    return { valid: true };
+}
+
 function isAllowedOrigin(url) {
     if (!url) return false;
     try {
@@ -114,12 +127,9 @@ function processPassphraseQueue(passphrase) {
 }
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    const sensitiveTypes = ['ENCRYPT', 'DECRYPT', 'ENCRYPT_AND_SIGN', 'SIGN_MESSAGE', 'VERIFY_SIGNATURE'];
-    if (sensitiveTypes.includes(request.type)) {
-        if (!sender.tab || !isAllowedOrigin(sender.tab.url)) {
-            sendResponse({ error: 'Unauthorized: Invalid origin' });
-            return false;
-        }
+    if (sender.tab && !isAllowedOrigin(sender.tab.url)) {
+        sendResponse({ error: 'Unauthorized: Invalid origin' });
+        return false;
     }
 
     if (request.type === 'ENCRYPT') {
@@ -240,6 +250,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 async function handleEncryption(text, recipientEmail = null) {
     try {
+        const validation = validateMessageLength(text);
+        if (!validation.valid) {
+            return { success: false, error: validation.error };
+        }
+
         const storage = await chrome.storage.local.get(['recipientKeys', 'defaultRecipientEmail']);
         const recipientKeys = storage.recipientKeys || {};
         let publicKeyArmored = null;
@@ -277,6 +292,11 @@ async function handleEncryption(text, recipientEmail = null) {
 
 async function handleEncryptWithRecipient(text, recipientEmail) {
     try {
+        const validation = validateMessageLength(text);
+        if (!validation.valid) {
+            return { success: false, error: validation.error };
+        }
+
         const storage = await chrome.storage.local.get('recipientKeys');
         const recipientKeys = storage.recipientKeys || {};
 
@@ -310,6 +330,11 @@ async function handleDecryption(armoredMessage, passphrase) {
                 success: false,
                 error: `Too many failed attempts. Please try again in ${lockoutStatus.remainingMinutes} minutes.`
             };
+        }
+
+        const validation = validateMessageLength(armoredMessage, MAX_KEY_LENGTH);
+        if (!validation.valid) {
+            return { success: false, error: validation.error };
         }
 
         const storage = await chrome.storage.local.get(['encryptedPrivateKey', 'salt', 'iv']);
@@ -505,6 +530,11 @@ async function handleSignMessage(text, passphrase) {
         return { success: false, error: 'No text provided' };
     }
 
+    const validation = validateMessageLength(text);
+    if (!validation.valid) {
+        return { success: false, error: validation.error };
+    }
+
     try {
         const storage = await chrome.storage.local.get(['encryptedPrivateKey', 'salt', 'iv']);
         if (!storage.encryptedPrivateKey) {
@@ -539,6 +569,11 @@ async function handleSignMessage(text, passphrase) {
 async function handleEncryptAndSign(text, passphrase) {
     if (!text) {
         return { success: false, error: 'No text provided' };
+    }
+
+    const validation = validateMessageLength(text);
+    if (!validation.valid) {
+        return { success: false, error: validation.error };
     }
 
     try {

@@ -3,7 +3,8 @@
   "name": "CipherMail",
   "version": "1.0.0",
   "description": "PGP Encryption for Gmail - Encrypt and decrypt emails with OpenPGP",
-  "permissions": ["storage", "activeTab", "offscreen", "commands"],
+  "privacy_policy": "https://yourdomain.com/privacy-policy.html",
+  "permissions": ["storage", "offscreen", "commands"],
   "host_permissions": ["https://mail.google.com/*", "https://keys.openpgp.org/", "https://keyserver.ubuntu.com/", "https://pgpkeys.eu/"],
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'none';"

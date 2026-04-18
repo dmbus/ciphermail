@@ -165,7 +165,10 @@ async function copyToClipboard(text, showMessage = true) {
             setTimeout(async () => {
                 try {
                     await navigator.clipboard.writeText('');
-                } catch (e) {}
+                } catch (e) {
+                    console.warn('CipherMail: Failed to clear clipboard:', e);
+                    showToast('Warning: Could not clear clipboard', 'error');
+                }
             }, clipboardSeconds * 1000);
         }
         return true;
@@ -388,7 +391,7 @@ async function loadStoredKeys() {
         if (response.hasMyKeys && response.myKeyInfo) {
             myKeyInfoDiv.innerHTML = `
                 <p><strong>User:</strong> ${escapeHtml(response.myKeyInfo.user)}</p>
-                <p><strong>Algorithm:</strong> <span class="algorithm">${response.myKeyInfo.algorithm}</span></p>
+                <p><strong>Algorithm:</strong> <span class="algorithm">${escapeHtml(response.myKeyInfo.algorithm)}</span></p>
                 <p class="fingerprint"><strong>Fingerprint:</strong> ${response.myKeyInfo.fingerprint}</p>
             `;
             document.getElementById('rotateKeys').style.display = 'block';
@@ -406,7 +409,7 @@ async function loadStoredKeys() {
         if (response.hasRecipientKey && response.recipientKeyInfo) {
             recipientKeyInfoDiv.innerHTML = `
                 <p><strong>User:</strong> ${escapeHtml(response.recipientKeyInfo.user)}</p>
-                <p><strong>Algorithm:</strong> <span class="algorithm">${response.recipientKeyInfo.algorithm}</span></p>
+                <p><strong>Algorithm:</strong> <span class="algorithm">${escapeHtml(response.recipientKeyInfo.algorithm)}</span></p>
                 <p class="fingerprint"><strong>Fingerprint:</strong> ${response.recipientKeyInfo.fingerprint}</p>
             `;
         } else {

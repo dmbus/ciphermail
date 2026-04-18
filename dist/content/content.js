@@ -45,6 +45,17 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
+function isAllowedOrigin(url) {
+    if (!url) return false;
+    try {
+        const parsed = new URL(url);
+        if (parsed.protocol !== 'https:') return false;
+        return parsed.hostname === 'mail.google.com' || parsed.hostname.endsWith('.mail.google.com');
+    } catch {
+        return false;
+    }
+}
+
 function showToast(message, type = 'info', duration = 4000) {
     const existingToast = document.getElementById('ciphermail-toast');
     if (existingToast) existingToast.remove();
@@ -127,7 +138,7 @@ async function requestPassphraseFromGmail(purpose) {
             </p>
             <input type="password" id="ciphermail-passphrase-input"
                 style="width:100%;padding:14px;margin-bottom:8px;border:1px solid #dadce0;border-radius:8px;font-size:14px;box-sizing:border-box;"
-                placeholder="Enter passphrase" autofocus>
+                placeholder="Enter passphrase" autofocus autocomplete="off">
             <p style="font-size:11px;color:#5f6368;margin:0 0 16px 0;">
                 Your passphrase is never sent to any server.
             </p>
@@ -162,6 +173,7 @@ async function requestPassphraseFromGmail(purpose) {
 
         submitBtn.onclick = () => {
             const passphrase = input.value;
+            input.value = '';
             cleanup();
             resolve(passphrase);
         };
@@ -539,7 +551,17 @@ async function loadSettings() {
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.type === 'SETTINGS_UPDATED') {
-        settings = { ...settings, ...request.settings };
+        if (!sender.tab || !isAllowedOrigin(sender.tab.url)) {
+            return false;
+        }
+        const allowedKeys = ['autoSign', 'autoLookup', 'confirmEncrypt'];
+        const sanitized = {};
+        for (const key of allowedKeys) {
+            if (key in request.settings) {
+                sanitized[key] = request.settings[key];
+            }
+        }
+        settings = { ...settings, ...sanitized };
     }
 });
 
